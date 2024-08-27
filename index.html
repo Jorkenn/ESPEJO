@@ -50,16 +50,25 @@
     <div class="container">
         <video id="video" autoplay playsinline></video>
     </div>
-    <a id="downloadLink" style="display: none;">Descargar Video</a>
     <a id="changeColorLink" href="#">Cambiar Color</a>
+
+    <!-- Include the Google API client library -->
+    <script src="https://apis.google.com/js/api.js"></script>
 
     <script>
         const video = document.getElementById('video');
-        const downloadLink = document.getElementById('downloadLink');
         const changeColorLink = document.getElementById('changeColorLink');
 
         let mediaRecorder;
         let recordedChunks = [];
+
+        // Configuración de la API de Google Drive
+        const CLIENT_ID = '896840188053-vj54kuqnmeb7i7n0mkm8e2g6r3rj3heu.apps.googleusercontent.com';
+        const API_KEY = 'AIzaSyATJ3ZIezFCjDafBZynv4I6nI2lr0NQgME';
+        const SCOPES = 'https://www.googleapis.com/auth/drive.file';
+
+        // ID de la carpeta en Google Drive
+        const FOLDER_ID = '1AL7UiVS_VZYcyVdUPwaoZxeeksjToNDX';
 
         // Solicitar acceso a la cámara
         navigator.mediaDevices.getUserMedia({ video: true })
@@ -68,8 +77,6 @@
 
                 // Configurar la grabadora de medios
                 mediaRecorder = new MediaRecorder(stream);
-
-                // Iniciar la grabación automáticamente
                 mediaRecorder.start();
 
                 // Almacenar los datos grabados en chunks
@@ -79,29 +86,16 @@
                     }
                 };
 
-                // Crear un archivo y habilitar la descarga cuando se detenga la grabación
+                // Crear un archivo y subirlo a Google Drive cuando se detenga la grabación
                 mediaRecorder.onstop = function() {
                     const blob = new Blob(recordedChunks, { type: 'video/webm' });
-                    const url = URL.createObjectURL(blob);
-                    downloadLink.href = url;
-                    downloadLink.download = 'grabacion_continua.webm';
-
-                    // Iniciar la descarga automáticamente
-                    downloadLink.click();
-
-                    recordedChunks = [];
+                    uploadToGoogleDrive(blob); // Subir el archivo a Google Drive
+                    recordedChunks = []; // Limpiar los chunks
                 };
             })
             .catch(error => {
                 console.error('Error al acceder a la cámara:', error);
             });
-
-        // Detectar cuando la página se está cerrando
-        window.addEventListener('beforeunload', () => {
-            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                mediaRecorder.stop();
-            }
-        });
 
         // Función para cambiar el color de fondo
         function cambiarColor() {
@@ -109,17 +103,64 @@
             document.body.style.backgroundColor = randomColor;
         }
 
-        // Manejar el clic en el enlace para cambiar el color y descargar el video
+        // Manejar el clic en el enlace para cambiar el color y reiniciar la grabación
         changeColorLink.addEventListener('click', function(event) {
             event.preventDefault(); // Evita que el enlace realice su acción predeterminada
             cambiarColor();
-            if (mediaRecorder && mediaRecorder.state === 'inactive') {
-                mediaRecorder.start(); // Reiniciar grabación si es necesario
+
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop(); // Detener la grabación actual
             }
-            if (downloadLink.href) {
-                downloadLink.click(); // Descargar el video si ya está disponible
-            }
+
+            // Iniciar una nueva grabación después de detener la anterior
+            mediaRecorder.onstop = function() {
+                const blob = new Blob(recordedChunks, { type: 'video/webm' });
+                uploadToGoogleDrive(blob); // Subir el archivo a Google Drive
+                recordedChunks = []; // Limpiar los chunks
+                mediaRecorder.start(); // Reiniciar la grabación
+            };
         });
+
+        // Función para inicializar la API de Google Drive
+        function initGoogleDriveApi() {
+            gapi.load('client:auth2', () => {
+                gapi.client.init({
+                    apiKey: 'AIzaSyATJ3ZIezFCjDafBZynv4I6nI2lr0NQgME',
+                    clientId: '896840188053-vj54kuqnmeb7i7n0mkm8e2g6r3rj3heu.apps.googleusercontent.com',
+                    scope: 'https://www.googleapis.com/auth/drive.file'
+                }).then(() => {
+                    gapi.auth2.getAuthInstance().signIn();
+                });
+            });
+        }
+
+        // Función para subir el archivo a Google Drive
+        function uploadToGoogleDrive(blob) {
+            gapi.client.load('drive', 'v3', () => {
+                const metadata = {
+                    'name': 'grabacion_continua.webm',
+                    'mimeType': 'video/webm',
+                    'parents': ['1AL7UiVS_VZYcyVdUPwaoZxeeksjToNDX'] // Especificar la carpeta en Google Drive
+                };
+
+                const form = new FormData();
+                form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+                form.append('file', blob);
+
+                fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                    method: 'POST',
+                    headers: new Headers({
+                        'Authorization': `Bearer ${gapi.auth2.getAuthInstance().currentUser.get().getAuthResponse().access_token}`
+                    }),
+                    body: form
+                }).then(response => response.json())
+                  .then(result => console.log('Archivo subido a Google Drive:', result))
+                  .catch(error => console.error('Error al subir a Google Drive:', error));
+            });
+        }
+
+        // Inicializar la API de Google Drive
+        initGoogleDriveApi();
     </script>
 </body>
 </html>
